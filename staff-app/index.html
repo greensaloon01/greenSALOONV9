@@ -6,7 +6,13 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Green Salon">
 <meta name="theme-color" content="#08090d">
+<meta name="description" content="Green Salon Staff Billing App">
+<!-- PWA Manifest (inline via JS — no separate file needed for GitHub Pages) -->
+<link rel="manifest" id="pwa-manifest">
+<!-- Apple touch icon (data URI — no image file needed) -->
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='100' fill='%2308090d'/%3E%3Ctext x='256' y='320' font-size='260' text-anchor='middle' fill='%2322d3a8' font-family='Arial'%3E✂%3C/text%3E%3C/svg%3E">
 <title>Green Salon</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
@@ -430,6 +436,16 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--txt);disp
   </div>
 </div>
 
+<!-- PWA Install Banner -->
+<div id="install-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;background:var(--s1);border-top:1px solid rgba(34,211,168,.3);padding:14px 18px;z-index:998;display:none;align-items:center;gap:12px">
+  <div style="flex:1">
+    <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--acc)">📲 Add to Home Screen</div>
+    <div style="font-size:12px;color:var(--muted);margin-top:2px">Install for full-screen, app-like experience</div>
+  </div>
+  <button onclick="installPWA()" style="padding:9px 16px;background:var(--acc);color:#08090d;border:none;border-radius:9px;font-family:'Syne',sans-serif;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0">Install</button>
+  <button onclick="document.getElementById('install-banner').style.display='none'" style="padding:9px 12px;background:transparent;border:1px solid var(--b2);color:var(--muted);border-radius:9px;font-size:13px;cursor:pointer;flex-shrink:0">✕</button>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -803,6 +819,70 @@ function toast(msg,isErr){
   t.className='toast show'+(isErr?' err':'');
   setTimeout(()=>t.className='toast',2800);
 }
+
+// ── PWA INSTALL PROMPT ────────────────────────────────────────
+let deferredPrompt=null;
+window.addEventListener('beforeinstallprompt',e=>{
+  e.preventDefault();
+  deferredPrompt=e;
+  // Show install banner only if not already installed
+  if(!window.matchMedia('(display-mode: standalone)').matches){
+    const banner=document.getElementById('install-banner');
+    if(banner)banner.style.display='flex';
+  }
+});
+window.addEventListener('appinstalled',()=>{
+  const banner=document.getElementById('install-banner');
+  if(banner)banner.style.display='none';
+  deferredPrompt=null;
+  toast('App installed! ✓ Open from home screen for full screen mode.');
+});
+function installPWA(){
+  if(deferredPrompt){deferredPrompt.prompt();deferredPrompt.userChoice.then(()=>{deferredPrompt=null;document.getElementById('install-banner').style.display='none';});}
+  else{
+    // iOS instructions
+    alert('To install on iPhone/iPad:\n1. Tap the Share button (box with arrow) in Safari\n2. Scroll down and tap "Add to Home Screen"\n3. Tap "Add"\n\nThe app will open full screen like a native app.');
+  }
+}
+
+// ── PWA SETUP ─────────────────────────────────────────────────
+// Injects manifest as a Blob URL — works without a separate manifest.json file
+function initPWA(){
+  const manifest={
+    name:"Green Salon",
+    short_name:"Green Salon",
+    description:"Salon billing app for staff",
+    start_url:location.pathname,
+    display:"standalone",
+    orientation:"portrait",
+    background_color:"#08090d",
+    theme_color:"#08090d",
+    icons:[
+      {src:"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='100' fill='%2308090d'/%3E%3Ctext x='256' y='340' font-size='280' text-anchor='middle' fill='%2322d3a8' font-family='Arial'%3E✂%3C/text%3E%3C/svg%3E",sizes:"512x512",type:"image/svg+xml",purpose:"any maskable"}
+    ]
+  };
+  const blob=new Blob([JSON.stringify(manifest)],{type:"application/json"});
+  document.getElementById('pwa-manifest').href=URL.createObjectURL(blob);
+
+  // Register service worker for offline capability
+  if('serviceWorker' in navigator){
+    const swCode=`
+const CACHE='gs-v10';
+const ASSETS=[location.pathname];
+self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).catch(()=>{}));self.skipWaiting();});
+self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))));self.clients.claim();});
+self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;if(e.request.url.includes('script.google.com'))return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(resp=>{const rc=resp.clone();caches.open(CACHE).then(c=>c.put(e.request,rc));return resp;}).catch(()=>caches.match(e.request))));});
+`;
+    const swBlob=new Blob([swCode],{type:'application/javascript'});
+    const swUrl=URL.createObjectURL(swBlob);
+    navigator.serviceWorker.register(swUrl).then(()=>{
+      Logger&&Logger.log;// no-op
+    }).catch(()=>{});
+  }
+}
+
+// Run PWA init on load
+window.addEventListener('load',initPWA);
 </script>
 </body>
 </html>
